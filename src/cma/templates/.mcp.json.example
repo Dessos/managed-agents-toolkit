@@ -1,0 +1,17 @@
+{
+  "_comment": "Drop this into your consumer project as .mcp.json to wire cma-local-executor as an MCP server Claude Code can call. Replace <ABSOLUTE_PATH_TO_PROJECT> with the project's absolute path on your machine. Then in Claude Code, the executor's tools (submit_job, get_job_status, get_job_result, list_jobs, cancel_job) become available.",
+
+  "mcpServers": {
+    "cma-local-executor": {
+      "command": "cma",
+      "args": [
+        "executor",
+        "stdio",
+        "--workspace-root",
+        "<ABSOLUTE_PATH_TO_PROJECT>",
+        "--project-name",
+        "<YOUR_PROJECT_SLUG>"
+      ]
+    }
+  }
+}

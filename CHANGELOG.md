@@ -1,0 +1,278 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
+versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Changed — repositioned as project-agnostic backbone
+- Relocated the starter example into the package at `src/cma/templates/starter/` (now ships with the wheel via the existing `templates/**/*` glob; `cma project init --with-example` resolves it via `importlib.resources`). Top-level `examples/README.md` is a discoverability pointer to the new location.
+- Scrubbed remaining consumer-specific identifiers from the public tree (vendor names, asset classes, codename, and domain vocabulary across docstrings, tool descriptions, and test fixtures). Generic placeholders throughout: `example-long-job`, `dataset-alpha`, `chunk_size_steps`, `example-strategy-v1`.
+- Rewrote `docs/ONBOARDING.md` IP-boundary section + `CLAUDE.md`'s opening paragraph to describe the architectural commitment without referencing any specific consumer stack. README quick-start updated to recommend `cma project init --project-name ... --with-example --with-mcp-json` as the one-command install path.
+- Renamed the long-running-job starter handler for consistency with the renamed spec (`example_long_job_handler`). JSON-RPC docstring example in `cma.executor.worker` also updated.
+- Removed the bundled-with-starter `mcp.json` duplicate; `cma project init --with-mcp-json` now produces the project-root `.mcp.json` with substitutions from the single source of truth at `src/cma/templates/.mcp.json.example`.
+- Dropped the consumer-side handler-wiring entry from `docs/ONBOARDING.md`'s pending list — that work belongs in the consumer's own clone, not the backbone.
+
+### Added — `cma project init` evolves into a both-modes scaffold
+- `--project-name`, `--workspace-root`: substitute into `.managed-agents/project.yaml` at copy time. Interactive prompts when missing AND stdin is a TTY; sane defaults (`target.name`, `target.resolve()`) when non-interactive — never fails-closed on a previously-working invocation.
+- `--with-example`: copies the bundled starter (job_specs + adapter, minus the starter's own README) from the package into `.managed-agents/`. Interactive prompt when not given.
+- `--with-mcp-json`: emits `.mcp.json` at the project root from `src/cma/templates/.mcp.json.example` with `<ABSOLUTE_PATH_TO_PROJECT>` + `<YOUR_PROJECT_SLUG>` substituted. Interactive prompt when not given.
+- Auto-detects non-interactive context via `sys.stdin.isatty()` (factored through `_stdin_is_tty()` for testability) — pipelines, CI, and agent-driven invocations get non-interactive behavior without an explicit flag.
+- Templates (`project.yaml`) updated with `{{PROJECT_NAME}}` and `{{WORKSPACE_ROOT}}` placeholders. `_copy_template` accepts a substitutions dict and **refuses to write any template that has unsubstituted `{{...}}` left over** — safety net against future-template drift. Angle-style placeholders in `.mcp.json.example` get separate handling.
+- Success output now lists every file written + numbered next-step actions, conditioned on which optional extras were materialized.
+
+### Decisions baked in
+- **Single source of truth for the starter** lives at `src/cma/templates/starter/`. Top-level `examples/README.md` is the discoverability shim pointing into the package. Alternative considered (keep `examples/starter/` at the top and duplicate into templates) was rejected for drift risk.
+- **Backward compatibility:** `cma project init` with no flags still works exactly as before from a CI script's perspective — produces a valid `project.yaml` with sane defaults (target dir name + resolved target path) rather than failing on missing args.
+- **TTY auto-detection** is preferred to an explicit `--non-interactive` flag check; the flag remains as an escape hatch when stdin is a TTY but the caller wants non-interactive behavior anyway.
+- **Per-file noqa over starter-dir-wide ignore:** the starter adapter now lives under `src/` and is subject to ruff + mypy. Defensive `int(numpy_scalar)` casts (for JSON serialization) stay; redundant `int(int)` casts removed. The remaining cast carries an inline comment explaining the pedagogical point.
+
+### Planned (deferred from this slice)
+- Optional rename `STRATEGY_REGISTRY` → `HANDLER_RESOLVER` in the starter adapter — readability win, but scope creep.
+- Whether `[Unreleased]` entries roll into a `[0.5.1]` (or `[0.6.0]`) release heading is a release-cadence decision left for the operator to make explicitly.
+
+### Tests (+13; 485 total)
+- 13 new tests in `tests/unit/test_project_init.py` covering both-modes init: backward-compat no-flags invocation, fallback project_name to target dir name, explicit --project-name + --workspace-root substitution, workspace_root default-to-target, --with-example copies the starter (and skips its README), --with-mcp-json substitutes the angle-style placeholders, substitution safety net rejects leftover `{{...}}`, --force overwrite, no-force-fails, interactive prompts when TTY, TTY auto-detection when not a TTY.
+- Updated 4 existing test fixtures to use neutral placeholder strings (`dataset-alpha`, `example-strategy-v1`, `example-project`) instead of trading vocabulary.
+
+### Added — FastMCP session notifier (production wiring for job-status notifications)
+- `cma.executor.notifications.FastMCPSessionNotifier` — captures the originating MCP session at `submit_job` time and dispatches `notifications/cma/job_status_changed` on the same session when the job reaches a terminal state. Built on `mcp.types.Notification[dict, str]` (custom-method JSON-RPC notification) + `ServerSession.send_notification`. Fire-and-forget: any transport error is silently swallowed; the polling path via `get_job_status` remains the authoritative contract.
+- `ExecutorServer._submit_job` now accepts an optional `ctx: Context`. The `submit_job` tool closure declares `ctx: Context` so FastMCP injects the active Context. If the notifier exposes `register_for_job`, the server calls it once per submission to bind `job_id → session` before kicking off the background runner.
+- `cma executor stdio` and `cma executor serve` both wire `FastMCPSessionNotifier()` as the default notifier (previously: `NullNotifier`). Tests and direct programmatic users still get `NullNotifier` unless they pass one explicitly.
+
+### Tests (+11; 472 total)
+- 11 new tests in `test_executor_session_notifier.py` covering: per-job binding records the session, `None` ctx + ctx-raises-on-access silently no-op, distinct jobs route to distinct sessions, dispatch fires the right payload on the bound session, unbound job_id silently drops, binding consumed on first notification (double-fire is a no-op), per-job binding is NOT broadcast (sibling sessions see nothing), send-raises is swallowed, no-event-loop drops silently (binding still consumed), and the on-the-wire dump is a valid JSON-RPC notification envelope.
+
+### Decisions baked in
+- **Per-job session binding (not broadcast).** When `submit_job` arrives, the notifier records `(job_id → session)`. On terminal state, the notification is sent only to the originating session. For the operator's current stdio path (one client per process) this is equivalent to broadcast. For the future HTTP path (Managed Agents cloud agent + Claude Code attached concurrently), it prevents leaking job IDs and status transitions across clients that didn't submit them — mirroring how `get_job_result` already requires the caller to know the `job_id`.
+- **One notification attempt per job_id, success or not.** The binding is consumed even if the send drops (no event loop, transport down, session torn down). Simpler invariant than "retry-on-failure" and matches the "notifications are a hint, polling is the contract" posture.
+- **Custom-method JSON-RPC notification, not a Pydantic subclass.** `notifications/cma/job_status_changed` lives outside MCP's `ServerNotificationType` union. Instantiating `Notification[dict, str]` keeps the payload structural and works with `send_notification`'s `model_dump`-based wire encoding — no need to subclass or patch the MCP types.
+
+### Added — `cma webhook` (Anthropic webhook receiver + budget kill switch)
+- `cma.webhook.signature` — Svix-compatible HMAC-SHA256 verification of `webhook-id` / `webhook-timestamp` / `webhook-signature` headers. Constant-time compare. Configurable replay window (default 5 min). Accepts multi-version headers (`v1,<sig> v1,<rotated-sig>`) for zero-downtime secret rotation. `whsec_`-prefixed or bare base64 secrets both accepted.
+- `cma.webhook.events` — Pydantic v2 envelope (`type` + `data`) plus per-event models for the four events declared in `WebhookConfig.subscribe_events`: `session.status_idled`, `session.status_terminated`, `vault_credential.refresh_failed`, `session.outcome_evaluation_ended` (envelope-only). All event payloads use `extra="allow"` so backend additions don't break parsing.
+- `cma.webhook.policy` — `BudgetState` snapshot + `KillSwitchAction` enum (`IGNORE` / `NOTIFY_ONLY` / `CANCEL_SESSION` / `CANCEL_PROJECT` / `EXHAUST_BUDGET`) + operator-implemented `kill_switch_policy()`. Current policy is **observe-first**: under-cap → IGNORE; on breach, `BudgetConfig.kill_on_breach` is the master switch (`True` → `CANCEL_SESSION`, `False` → `NOTIFY_ONLY`). Sibling sessions are never collateral damage.
+- `cma.webhook.actions` — `Actions` protocol with `cancel_session` / `cancel_project_sessions` / `mark_budget_exhausted` / `notify`. Ships `NullActions` (safe default for Max-only setup; no API credit available to actually cancel) and `CapturingActions` (test helper). `SdkActions` lands in the release that first uses API credit.
+- `cma.webhook.receiver.build_app(...)` — FastAPI factory. Verifies signature, parses envelope, telemetry-logs every type, reconciles `session.status_idled` usage via `BudgetLedger.record_usage`, computes `BudgetState`, calls the policy, dispatches via `Actions`. Always returns 204 on success; 400 on signature/envelope failure; 500 on unimplemented-policy stub (defensive — refuses to silently swallow a missing operator decision). Docs/redoc/openapi disabled (public-facing endpoint, no reason to advertise surface).
+- `cma webhook serve` / `cma webhook verify` CLI commands. `serve` binds 127.0.0.1 by default (loopback + tunnel is the defense-in-depth posture); refuses to start if the policy still raises `NotImplementedError`. `verify` dry-runs signature verification against a saved-on-disk delivery body + headers, useful for testing secret rotation against known-good captures.
+
+### Tests (+54; 461 total)
+- 17 tests for signature (header parsing, roundtrip, multi-version rotation case, replay window symmetry, every failure path: bad sig, bad secret, bad msg_id, stale, future, non-integer timestamp, empty/non-base64 secret, v0-only rejection).
+- 11 tests for events (envelope parsing, extra-field tolerance, each parser, total_tokens helper, missing required-field validation).
+- 12 tests for policy (under-cap → IGNORE regardless of toggle; over-cap × kill_on_breach matrix; never returns CANCEL_PROJECT or EXHAUST_BUDGET; is_breach helper).
+- 14 tests for receiver (happy path 204, four policy outcomes dispatched correctly, BudgetState computation including over-cap flags, signature failures → 400, envelope failures → 400, non-idled types skip policy, idled-with-missing-fields skips policy, NotImplementedError → 500, telemetry policy_decision line shape, /healthz).
+
+### Decisions baked in
+- **Observe-first policy** (operator-confirmed): the master switch is `BudgetConfig.kill_on_breach`. When `False`, breaches still trigger telemetry via `NOTIFY_ONLY` so the operator can watch decisions accumulate before flipping to destructive actions. Sibling-session collateral (`CANCEL_PROJECT`, `EXHAUST_BUDGET`) is intentionally never selected — strategy sessions are independent experiments.
+- **`build_app` is NOT re-exported from `cma.webhook.__init__`**. Reason: receiver hard-imports fastapi at module load (necessary for `Request`/`Response` annotations to resolve under `from __future__ import annotations` in callers). Signature + events stay light-dep so code that just wants `verify_signature()` can use `pip install claude-managed-agents` without `[webhook]`.
+- **Receiver returns 400 (not 401) on signature failure**. Svix retries on 5xx but not 4xx — 400 avoids retry storms on a misconfigured secret. Returns a generic `signature_invalid` detail (defense in depth: don't tell a probing attacker which check failed).
+- **Policy stub raises rather than no-ops**. `NotImplementedError` surfaces as HTTP 500 + telemetry line `policy_not_implemented`. A silent default (e.g. always-IGNORE) would let runaway spend through without the operator noticing.
+
+### Added — `cma agent` (agent YAML lint + list)
+- `cma.core.agent_spec` — Pydantic v2 `AgentSpec` model for standalone agent YAMLs (name / model / description / system / tools / mcp_servers / skills / multiagent / metadata). Discriminated union for tool entries: `type: custom` routes to `CustomToolEntry`, anything else to `BuiltinToolsetEntry`.
+- `cma.core.lint` — local-only lint engine. Ten rules:
+  - **R001** description is empty (default ERROR)
+  - **R002** description < 30 chars (WARNING)
+  - **R003** description identical to name (ERROR)
+  - **R004** description doesn't start with an action verb (INFO)
+  - **R005** system prompt below the per-model cache-engagement threshold — Opus 4096, Sonnet 1024, Haiku 2048 (WARNING; sub-75% threshold has a "well below" message, 75–100% has a "pad past" message)
+  - **R006** model not in `PRICING_TABLE` (ERROR)
+  - **R007** custom tool description < 50 chars (ERROR; ≥3-4 sentence Anthropic guidance)
+  - **R008** custom tool name lacks namespace separator (WARNING)
+  - **R009** custom tool description / schema contains a timestamp-like value — ISO date, `datetime.now(`, `new Date(`, `time.time(` — which busts the tool cache on every session (WARNING)
+  - **R010** `metadata.cma_template` set but `cma_template_version` missing (WARNING)
+- Operator-tunable severity policy at `RULE_SEVERITY` in `cma/core/lint.py`. Comment block documents STRICT / MIDDLE / LENIENT presets; current default is MIDDLE.
+- `cma agent lint [PATH]` CLI — file or directory, defaults to `.managed-agents/agents/` then bundled templates. Exit code = error count (capped at 125 for CI use).
+- `cma agent list [--workspace-root]` — discovered YAMLs from project + bundled templates as a rich table.
+- `docs/agent-lint.md` — rule table, R005/R009 rationale, severity presets, "adding a new rule" guide.
+
+### Added — `cma audit` (executor MCP log reader)
+- `cma.cli.audit` — read surface over `<workspace>/.managed-agents/.state/executor-audit.jsonl`.
+  - `cma audit --since <DURATION_OR_ISO>` — relative (`24h`, `7d`, `30m`, `1w`, `120s`) or ISO 8601 (`2026-05-18`, `2026-05-18T03:14:22Z`), or the literal `all`.
+  - `cma audit --tool <NAME>` / `--client-id <8-hex>` — filter by MCP tool name / bearer fingerprint.
+  - `cma audit --error-only` — only entries with a non-empty `error` field.
+  - `cma audit --json` — raw JSONL output (pipeable to `jq`).
+- Output: rich table (ts/tool/client/job_id/status/elapsed/args+error) with footer summary (counts by tool / status / client / error).
+- Malformed lines tolerated — reader skips and reports, audit log is forensic, partial recovery beats none.
+- Public `audit_log_path(workspace_root)` extracted from `cma.executor.audit` so reader and writer share one source of truth on path.
+
+### Tests (+96; 407 total)
+- 60 new tests for agent_spec + lint (rule-by-rule fail+clean cases, severity application, CLI exit codes, parametrized rule-callable sanity).
+- 36 new tests for audit CLI (duration/ISO parsing, every filter axis, missing/empty/malformed file handling, `--json` mode, exit codes).
+- ruff clean, mypy clean on 39 source files.
+
+### Decisions baked in
+- **R005 token estimate uses chars/4 heuristic.** BPE tokenizers compress denser than that, so the heuristic *overestimates* — false-positive "sub-threshold" warnings are mildly annoying but the alternative (false-negative cache silently doesn't engage) is the bug we're trying to catch. Bias direction is the right one.
+- **`audit_log_path` is THE path helper.** Adding a third consumer (Prometheus exporter, web dashboard, etc.) routes through this function so the path string can't drift.
+- **`parse_since` accepts both relative and ISO.** Scripts can hard-code `--since 2026-05-18`; interactive use stays terse. One option, two parsers — paid once.
+
+### Planned
+- CLI subcommands: `cma env`, `cma session`.
+- `SdkActions` implementation — production wiring of the action executor, lands in the release that first uses API credit.
+- Pilot 4 (knowledge ingestion) end-to-end smoke test (blocked on operator decision around API credit).
+
+## [0.5.0] — 2026-05-19
+
+Bridge deep validation + injectable MCP-style job-status notifications.
+
+### Added — Bridge probe
+- `cma.executor.bridge_config` — Pydantic v2 models for `.managed-agents/local_mcp_bridge.yaml`. Discriminated-union transport: `stdio` (command + args + env + cwd) or `http` (HTTPS-only URL + optional `auth_token_env`). Entries without `transport:` stay declarative; with it, deep probe becomes possible.
+- `cma.executor.bridge_probe` — async `probe_bridge(config)` that spawns each `stdio` transport (or hits each `http` transport), runs MCP initialize + tools/list, computes drift against the YAML's `expose` list, returns a structured `BridgeProbeReport`.
+- `cma bridge probe` CLI command. Exit codes: 0 clean, 1 if any entry unreachable, 2 if drift detected.
+- `cma bridge lint` now uses the Pydantic schema and renders a Rich table of declared entries.
+- Drift categories surfaced:
+  - **listed_but_absent**: tool in `expose` doesn't exist on the live server (typo, server version drift, or stale config).
+  - **present_but_unlisted**: server advertises a tool the YAML doesn't include (only flagged for explicit `expose: [...]`, not `expose: all`).
+
+### Added — MCP notifications
+- `cma.executor.notifications` module: `Notifier` protocol, `NullNotifier` (default), `CapturingNotifier` (test helper), `build_job_status_payload()`. Method name: `notifications/cma/job_status_changed`.
+- `ExecutorServer.__init__` accepts an optional `notifier: Notifier` parameter; defaults to `NullNotifier` (silent). `_on_job_changed` dispatches via the injected notifier with errors silently swallowed (notifications are never on the critical path).
+- Payload schema: `{job_id, status, spec_ref, job_type, submitted_at, started_at, finished_at}`. Tested to **never** include raw inputs, raw results, or error messages — those go via `get_job_result`.
+
+### Tests (+52; 311 total)
+- 24 tests for `bridge_config` (schema parsing, discriminated unions, edge cases).
+- 15 tests for `bridge_probe` (drift computation matrix, `no_transport`/`unreachable`/`ok` outcome dispatch, 2 REAL `cma executor stdio` subprocess probes verifying tools/list).
+- 13 tests for notifications (payload safety, NullNotifier/CapturingNotifier behavior, ExecutorServer integration, real end-to-end notification dispatch on subprocess completion).
+
+### Decisions baked in
+- **Bridge transport is optional** per entry — preserves backwards compatibility with name-only entries while enabling deep probe for entries that opt in.
+- **HTTP transport URL must be HTTPS** (or `${VAR}` placeholder pre-expansion). Same posture as remote MCP server URLs in the project config.
+- **Notification consumption is client-dependent.** Server-side dispatch is bulletproof and tested; whether Claude Code or Managed Agents actually act on `notifications/cma/job_status_changed` is up to the client. Polling via `get_job_status` remains the authoritative contract.
+- **Dependency-injected notifier** — `ExecutorServer` doesn't know about FastMCP's session API. Production CLIs that want real notification dispatch will inject a FastMCP-session-backed `Notifier` implementation; tests pass `CapturingNotifier`.
+
+### Known gaps
+- Server-side payload + dispatch is implemented, but the FastMCP-session-backed `Notifier` (the bit that actually puts bytes on the MCP wire) is not yet wired into `cma executor stdio` / `cma executor serve`. The injection point is ready; landing the production wiring is the next-iteration work for this feature.
+
+## [0.4.0] — 2026-05-19
+
+The executor works with Claude Code today, no API credit needed.
+
+### Discovery
+- Operator runs Claude Code on Max plan with OAuth (no separate API key).
+- The OAuth `accessToken` in `~/.claude/.credentials.json` is 65 days expired on disk; Claude Code refreshes in memory only. OAuth-as-Bearer workaround for the Anthropic API is impractical — undocumented refresh endpoint + TOS uncertainty + long-term fragility.
+- **Pivot**: build the cma-local-executor as a Claude Code MCP server, not a Managed Agents adjunct. Same protocol, different transport.
+
+### Added
+- `cma executor stdio` — runs ExecutorServer over MCP stdio transport. No port, no auth, no Cloudflare needed. The MCP client (Claude Code) spawns this as a subprocess per session and pipes JSON-RPC over stdin/stdout.
+- `docs/claude-code-integration.md` — setup walkthrough including `.mcp.json` template, IP-boundary explanation, and a 12-row troubleshooting matrix.
+- `templates/.mcp.json.example` — generic template the operator copies into any consumer project.
+- `src/cma/templates/starter/` — realistic starter example, shipped with the wheel and copied by `cma project init --with-example`:
+  - `job_specs/compute-stats.yaml` — trivial validator handler (read CSV, return stats) for pipeline smoke-testing.
+  - `job_specs/example-long-job.yaml` — long-running chunked-compute dispatch spec with allowed slug choices, dates, chunk/validation step params; declares a generic `metric_a`/`metric_b`/`metric_c` output_summary.
+  - `adapters/local_executor.py` — working `compute_stats_handler` + skeleton `example_long_job_handler` with TODO markers where the consumer wires their real long-running call.
+  - (No bundled `mcp.json` per starter; `cma project init --with-mcp-json` emits a substituted copy at the project root from `src/cma/templates/.mcp.json.example`.)
+
+### Tests (+3; 259 total)
+- 3 stdio integration tests that spawn the executor as a real subprocess, send JSON-RPC frames over stdin, validate the MCP handshake + tool registration + an end-to-end submit_job → poll → get_job_result round-trip. Same protocol Claude Code uses.
+
+### Why this matters
+- The toolkit now delivers value **today** on Max-only subscriptions. Author job_specs + adapter → tell Claude Code "run job X" → curated summary metrics come back. The consumer's proprietary source never leaves the subprocess.
+- Same MCP tool surface that Managed Agents would consume when (if) operator adds API credit. Zero refactor required to transition from Claude-Code-only to Claude-Code + Managed Agents.
+
+### Known gaps (unchanged from 0.3.0)
+- Live `cma doctor --probe-beta` still untested (needs API credit).
+- Webhook receiver not built yet.
+- MCP server-side notification emission still scaffolded but not wired.
+
+## [0.3.0] — 2026-05-19
+
+API key sourcing no longer requires plaintext storage. Toolkit reads from
+a chain of sources and rejects sentinel/placeholder values before they
+can reach the API.
+
+### Added
+- `cma.api.client._api_key()` rewritten as a resolution chain:
+  1. `ANTHROPIC_API_KEY` env var (if real, not a sentinel)
+  2. `CMA_API_KEY_HELPER` env var — shell command, stdout is the key
+  3. `apiKeyHelper` field in `~/.claude/settings.json` — same semantics, shared with Claude Code
+- Sentinel detection: keys < 30 chars, wrong prefix, or matching known decoys (`sk-ant-..`, `sk-ant-placeholder`, `sk-ant-xxxxxxxx`, etc.) are rejected with explicit reason.
+- `_run_helper()` executes the helper command with 10s timeout, captures stdout, validates non-empty, rejects on non-zero exit.
+- `docs/api-key-storage.md` — Windows (PowerShell + SecretManagement), macOS (Keychain), Linux (libsecret) setup walkthroughs + rotation + troubleshooting.
+- 26 new unit tests covering sentinel patterns, all three resolution sources, precedence order, helper execution errors, settings.json parsing tolerance.
+
+### Decisions baked in
+- **Sentinel handling**: operator can keep a defensive placeholder env var (e.g. `sk-ant-..`) without it leaking into API calls. The toolkit falls through to the helper chain.
+- **Cache for process lifetime**: resolved key cached via `lru_cache`; secret rotation = restart the cma process. Long-running daemons (`cma executor serve`) need a restart after rotation.
+- **No mutation of Claude Code's `settings.json`**: Claude Code on Max plan uses OAuth; adding `apiKeyHelper` there would be redundant or confusing. Toolkit reads from there as a convenience source only.
+- **Shell execution by design**: `apiKeyHelper` is a shell-command string (matches Claude Code's convention). Operator-controlled sources only; shell-injection risk bounded by trust.
+
+### Known gaps
+- Live `cma doctor --probe-beta` still untested against real Anthropic API (operator's Max-plan setup uses OAuth; needs API credit + a real key in secret store before the probe will succeed).
+- Helper command output not validated against the actual API until the doctor probe runs.
+
+## [0.2.0] — 2026-05-19
+
+`cma-local-executor` MCP daemon shipped. Local infrastructure side of the
+tiered-execution architecture is now operational; cloud agents can submit
+jobs that touch proprietary code without it leaving the operator's machine.
+
+### Added — Executor (the headline)
+- `cma.executor.job` — `Job`, `JobStatus`, `JobResult` types. Six-state lifecycle (queued → running → succeeded/failed/cancelled/timed_out).
+- `cma.executor.spec` — `JobSpec` Pydantic model + loader for `.managed-agents/job_specs/*.yaml`. Operator-declared input contract with type + range + choice validation; unknown input keys are rejected.
+- `cma.executor.adapter` — discovery + validation of `.managed-agents/adapters/local_executor.py`'s `JOB_HANDLERS` dict. Sync handlers are rejected (must be `async def`).
+- `cma.executor.auth` — static bearer token at `.managed-agents/.state/executor_token` (gitignored, 0600 mode on POSIX). Constant-time comparison via `secrets.compare_digest`.
+- `cma.executor.audit` — per-call JSONL audit log at `.managed-agents/.state/executor-audit.jsonl`. Client fingerprint = first 8 chars of token hash (never logs the raw token).
+- `cma.executor.store` — SQLite-backed `JobStore` with WAL mode; per-project DB at `.managed-agents/.state/executor.db`.
+- `cma.executor.runner` — subprocess-per-job runner (operator's choice; strong isolation). `asyncio.create_subprocess_exec` spawns `python -m cma.executor.worker`; child exchanges JSON via stdin/stdout. SIGTERM → 5s grace → SIGKILL on timeout.
+- `cma.executor.worker` — child process entry point. Reads request from stdin, imports adapter (with workspace_root on `sys.path` for transitive imports), runs handler via `asyncio.run`, writes JSON envelope to stdout. Validates result is dict + JSON-serializable.
+- `cma.executor.server` — `FastMCP` server exposing 5 tools: `submit_job`, `get_job_status`, `get_job_result`, `list_jobs`, `cancel_job`. Tool descriptions follow the docs-best-practice discipline (≥4 sentences, examples, schema mention).
+
+### Added — CLI
+- `cma executor serve` — runs the FastMCP daemon with Starlette bearer-auth middleware. Binds 127.0.0.1 by default; Cloudflare Tunnel handles public exposure.
+- `cma executor jobs` — rich table of jobs from the local state DB (filter by status, job_type, limit).
+- `cma bridge rotate-token` — generates new 256-bit token, persists, prints once.
+- `cma bridge lint` — validates `local_mcp_bridge.yaml` schema shape.
+
+### Added — Tests (91 new; 230 total)
+- 37 tests for executor data models (`test_executor_job.py`, `test_executor_spec.py`).
+- 27 tests for auth + adapter (`test_executor_auth.py`, `test_executor_adapter.py`).
+- 9 tests for store CRUD (`test_executor_store.py`).
+- 6 integration tests for runner+worker (real subprocesses; covers happy path, error, timeout, missing handlers, non-dict result, input passthrough).
+- 8 end-to-end tests for the server tool methods.
+
+### Decisions baked in
+- **Subprocess per job** (operator-confirmed): each job runs in a separate Python process via `asyncio.create_subprocess_exec`. Adapter is re-imported in the child; PIT enforcement and other module-load side effects don't leak between jobs.
+- **Hybrid YAML + Python adapter** (operator-confirmed): `job_specs/*.yaml` declares the contract; `adapters/local_executor.py` provides the callables. Cloud agent only sees the YAML's `spec_ref` + output_summary keys.
+- **Polling-primary, notification scaffolded** (operator-confirmed: BOTH defensive). `submit_job` returns a `job_id`; `get_job_status` / `get_job_result` polling works fully. The `_on_job_changed` hook in `ExecutorServer` is where FastMCP server-side notifications will plug in once Anthropic's forwarding contract is confirmed.
+- **Static bearer auth** (operator-confirmed): Starlette middleware checks `Authorization: Bearer <token>` and returns 401 + `WWW-Authenticate: Bearer` on failure. Rotation invalidates immediately.
+- **Result envelope is metrics-only**: handler returns must be JSON-serializable dicts. Numpy arrays etc. are caught at the worker boundary with a clear error.
+
+### Known gaps
+- Live probe (`cma doctor --probe-beta` / `--probe-outcomes`) still untested against the real Anthropic API. Waiting on operator's shell.
+- MCP server-side notification emission not yet wired (polling path is the contract).
+- Bridge YAML lint validates shape but doesn't probe the named MCP servers' tool surfaces.
+- Webhook receiver not built yet.
+
+## [0.1.0] — 2026-05-19
+
+First cut. Foundation is operational; alpha pilots blocked on Anthropic access form + Cloudflare setup.
+
+### Added
+- SDK client wrapper (`cma.api.client.get_client`) with `managed-agents-2026-04-01` and `cache-diagnosis-2026-04-07` beta headers always-on; opt-in Files-API beta via `with_files_beta()`.
+- Project config schema (`cma.core.config`) — Pydantic v2 models for `ProjectConfig`, `BudgetConfig`, `WebhookConfig`, `TelemetryConfig`, with template/local refs and `${ENV_VAR}` expansion.
+- Per-model pricing constants (`cma.core.pricing`) covering Opus 4.7 / 4.1, Sonnet 4.6, Haiku 4.5 — five token categories each (base / 5m write / 1h write / cache read / output).
+- Budget controller (`cma.core.budget`) with SQLite-backed daily + per-session ledger, preflight gate, kill-switch.
+- JSONL telemetry emitter with mandatory credential redaction (20 redaction patterns tested).
+- Resource wrappers (`cma.api.{agents,environments,sessions,events,vaults}`) — thin SDK pass-throughs with telemetry + boundary ID validation.
+- `AgentRegistry` SQLite cache enabling idempotent `sync_agent` (no-op when spec_hash matches).
+- `cma doctor` CLI: local diagnostic by default; `--probe-beta` makes 2 API calls (base + multi-agent); `--probe-outcomes` adds a third probe via throwaway env + session + define_outcome (~$0.10-0.25 cost).
+- `cma project init` CLI: scaffolds `.managed-agents/project.yaml` + `local_mcp_bridge.yaml` + `.gitignore` via `importlib.resources`.
+- `cma project verify` CLI: validates an existing project config and reports specific errors.
+- 78 unit tests covering pricing, budget, redaction, identifiers, config — all passing.
+- GitHub Actions CI (`.github/workflows/ci.yml`): ruff + mypy + pytest across Python 3.11 + 3.12.
+
+### Decisions
+- **Tiered execution**: cloud agent orchestrates, local executes proprietary code. The `cma-local-executor` MCP daemon (next release) is the bridge.
+- **Operator-authored MCP bridge**: no permissive default. Toolkit ships the schema + audit log only; operator writes `.managed-agents/local_mcp_bridge.yaml`.
+- **Networking config never has a default**. `create_environment` refuses to omit `networking` to sidestep doc-drift between the Environments and Cloud Containers pages.
+- **`spec_hash` is 32 hex chars / 128 bits**. Birthday-bound collision ~2^64 entries; safe far beyond realistic project scale.
+- **Templates loaded via `importlib.resources`** — works in editable, wheel, and zipapp installs.
+
+### Notes
+- Live `cma doctor --probe-beta` probe was NOT run during autonomous foundation build because Claude Code's Bash sandbox doesn't expose `ANTHROPIC_API_KEY` to subprocess shells. Operator runs the probe in their own shell.
+- No GitHub push at v0.1.0 — repository was local-only at that point.
+
+[Unreleased]: https://github.com/Dessos/managed-agents-toolkit/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Dessos/managed-agents-toolkit/releases/tag/v0.1.0

@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Tests + coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Per-clone Claude Code workspace (settings, sessions, etc.)
+.claude/
+
+# Secrets
+.env
+.env.local
+*.pem
+*.key
+
+# CMA runtime state
+.cma-state.db
+*.jsonl
+cma-state.db
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project-local outputs that shouldn't be checked in
+outputs/
+deliverables/
+.managed-agents/outputs/
+.managed-agents/.state/

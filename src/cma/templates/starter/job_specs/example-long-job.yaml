@@ -1,0 +1,51 @@
+# example-long-job — template for a long-running compute that takes chunked
+# input and returns curated summary metrics. The handler integrates with a
+# hypothetical yourproject.compute.run_long_task() and returns ONLY summary
+# metrics — proprietary source, parameters, and per-step state stay inside
+# the subprocess.
+
+spec_ref: example-long-job
+job_type: compute
+handler: example_long_job_handler
+description: |
+  Dispatch a long-running compute job that processes a dataset in chunks
+  and returns summary metrics. The `strategy_name` slug resolves locally
+  via the adapter's STRATEGY_REGISTRY (rename to fit your domain — e.g.
+  MODEL_REGISTRY, PIPELINE_REGISTRY) — cloud / Claude Code never sees the
+  resolved object or its parameters.
+timeout_seconds: 1800  # 30 minutes — adjust for your job's wall clock.
+
+allowed_inputs:
+  strategy_name:
+    type: string
+    choices: ["example-strategy-v1", "example-confirmed", "example-ladder"]
+    description: Registered slug. Edit STRATEGY_REGISTRY in adapter to extend.
+  dataset:
+    type: string
+    choices: ["dataset-alpha", "dataset-beta"]
+    description: Dataset selector — example for a choice-bounded input.
+  start:
+    type: date
+  end:
+    type: date
+  chunk_size_steps:
+    type: integer
+    min: 10
+    max: 500
+    default: 100
+    description: Example numeric range. Replace with whatever bounded
+                 integer your job needs.
+  validation_steps:
+    type: integer
+    min: 5
+    max: 100
+    default: 25
+
+# Cloud / Claude Code sees ONLY these fields in the result. Anything else
+# the handler computes stays local. Rename keys to fit your domain.
+output_summary:
+  metric_a: number
+  metric_b: number
+  metric_c: number
+  result_count: integer
+  windows_completed: integer

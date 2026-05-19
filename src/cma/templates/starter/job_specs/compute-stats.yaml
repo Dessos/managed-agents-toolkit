@@ -1,0 +1,26 @@
+# compute-stats — trivial validator handler.
+# Reads a CSV via pandas, returns row/column counts + null counts per column.
+# Bypasses the consumer's real handlers; just verifies the pipeline plumbing
+# works end-to-end before you wire your real handlers.
+
+spec_ref: compute-stats
+job_type: data-stats
+handler: compute_stats_handler
+description: |
+  Read a CSV file from the project workspace and return basic statistics.
+  Used to validate the pipeline before your real handlers are wired.
+timeout_seconds: 60
+
+allowed_inputs:
+  csv_path:
+    type: string
+    description: Path to the CSV, relative to workspace_root.
+  delimiter:
+    type: string
+    default: ","
+    description: CSV delimiter, defaults to comma.
+
+output_summary:
+  row_count: integer
+  column_count: integer
+  null_counts: object  # column → null count

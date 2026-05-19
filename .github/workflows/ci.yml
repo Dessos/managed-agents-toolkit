@@ -1,0 +1,42 @@
+name: ci
+
+on:
+  push:
+    branches: [claude]
+  pull_request:
+    branches: [claude]
+
+jobs:
+  test:
+    name: test (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package + all extras
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,webhook,prometheus,executor]"
+
+      - name: Lint (ruff)
+        run: python -m ruff check src tests
+
+      - name: Type check (mypy)
+        # All extras installed above; mcp is available so executor modules
+        # type-check cleanly per pyproject.toml's mypy strict settings.
+        run: python -m mypy src/cma
+
+      - name: Unit tests
+        run: python -m pytest tests/unit -v

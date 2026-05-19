@@ -1,0 +1,37 @@
+# .managed-agents/local_mcp_bridge.yaml
+# Operator-authored declaration of which LOCAL MCP servers are bridged to
+# cloud agents through the cma-local-executor daemon + Cloudflare Tunnel.
+#
+# Toolkit refuses to start a session if this file is empty or missing —
+# there is no permissive default. You must explicitly opt-in per server.
+#
+# Reference: docs/local-mcp-bridge.md
+
+bridge:
+  # The local job executor — always safe to expose (job specs are operator-
+  # authored, parameters are bounded, no source code leaves the box).
+  - mcp: cma-local-executor
+    expose: all
+
+  # ---- Examples (commented out) -------------------------------------------
+  # - mcp: codebase-memory-mcp
+  #   expose: [search_code, query_graph]   # NOT get_code_snippet
+  #   filters:
+  #     paths_denylist:
+  #       - src/yourproject/proprietary/    # NEVER expose proprietary source
+  #       - src/yourproject/secrets/
+  #       - configs/limits.*.yaml
+  #
+  # - mcp: grafana
+  #   expose: [list_dashboards, query_prometheus, list_loki_label_values]
+  #   deny: [create_alert_rule, update_dashboard, delete_alert_rule]
+  #
+  # - mcp: scheduled-tasks
+  #   expose: [list_scheduled_tasks]        # read-only
+
+# Notes:
+# - Browser-driving MCP servers (Claude_Preview, Claude_in_Chrome, playwright)
+#   are explicitly out of scope — they need a local browser that doesn't
+#   exist in the cloud container.
+# - Every MCP tool call from a cloud agent emits a JSONL audit line through
+#   the telemetry layer. View with `cma audit --since=24h`.

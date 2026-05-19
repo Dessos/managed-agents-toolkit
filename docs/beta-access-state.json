@@ -1,0 +1,20 @@
+{
+  "ts": "2026-05-18T20:18:20+00:00",
+  "cma_version": "0.0.1",
+  "python_version": "3.14.0",
+  "api_key_present": false,
+  "api_key_workspace": null,
+  "env_vars_present": {
+    "ANTHROPIC_WEBHOOK_SIGNING_KEY": false,
+    "CMA_WEBHOOK_ENDPOINT": false,
+    "CMA_MCP_BRIDGE_ENDPOINT": false,
+    "CMA_MCP_BRIDGE_TOKEN": false,
+    "CMA_TELEMETRY_PATH": false,
+    "PROMETHEUS_PUSHGATEWAY_URL": false
+  },
+  "beta_headers_applied": [
+    "managed-agents-2026-04-01",
+    "cache-diagnosis-2026-04-07"
+  ],
+  "probes": []
+}
