@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "claude-managed-agents"
-version = "0.5.0"
+version = "0.5.1"
 description = "Multi-project toolkit for Anthropic's Claude Managed Agents — tiered execution, project config, IP-defensive MCP bridge, outcome-driven workflows."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -105,7 +105,7 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
-module = ["anthropic.*", "mcp.*"]
+module = ["anthropic.*", "mcp.*", "pandas", "pandas.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------------------

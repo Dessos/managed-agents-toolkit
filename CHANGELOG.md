@@ -7,6 +7,13 @@ versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.1] — 2026-05-19
+
+CI fix + roll-up of post-0.5.0 work into a tagged release. No new features.
+
+### Fixed
+- Add `pandas` (bare + `pandas.*`) to the mypy override module list in `pyproject.toml`. The [Unreleased] decision to bring the starter under mypy's gaze missed pandas, which broke CI on both py3.11 and py3.12 legs (`Library stubs not installed for "pandas"`). Consistent with how `anthropic.*` and `mcp.*` are handled; the starter is meant to be rewritten by each consumer, so full pandas type coverage on a placeholder example is over-investment.
+
 ### Changed — repositioned as project-agnostic backbone
 - Relocated the starter example into the package at `src/cma/templates/starter/` (now ships with the wheel via the existing `templates/**/*` glob; `cma project init --with-example` resolves it via `importlib.resources`). Top-level `examples/README.md` is a discoverability pointer to the new location.
 - Scrubbed remaining consumer-specific identifiers from the public tree (vendor names, asset classes, codename, and domain vocabulary across docstrings, tool descriptions, and test fixtures). Generic placeholders throughout: `example-long-job`, `dataset-alpha`, `chunk_size_steps`, `example-strategy-v1`.
@@ -274,5 +281,6 @@ First cut. Foundation is operational; alpha pilots blocked on Anthropic access f
 - Live `cma doctor --probe-beta` probe was NOT run during autonomous foundation build because Claude Code's Bash sandbox doesn't expose `ANTHROPIC_API_KEY` to subprocess shells. Operator runs the probe in their own shell.
 - No GitHub push at v0.1.0 — repository was local-only at that point.
 
-[Unreleased]: https://github.com/Dessos/managed-agents-toolkit/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/Dessos/managed-agents-toolkit/releases/tag/v0.1.0
+[Unreleased]: https://github.com/Dessos/managed-agents-toolkit/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/Dessos/managed-agents-toolkit/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/Dessos/managed-agents-toolkit/releases/tag/v0.5.0

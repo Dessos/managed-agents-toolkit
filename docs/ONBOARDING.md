@@ -30,16 +30,16 @@ The toolkit's central commitment is that **proprietary code and data never leave
 
 The cloud agent learns only what the operator declared in `output_summary`. If the handler doesn't put proprietary parameters in the returned dict, the cloud never sees them.
 
-## Current state (single-commit squashed history; v0.5.0 backbone)
+## Current state (v0.5.1; backbone)
 
 | | |
 |---|---|
 | Repo | https://github.com/Dessos/managed-agents-toolkit (public) |
 | Default branch | `claude` |
-| Version | 0.5.0 (unreleased work bundled into the same squash — see CHANGELOG `[Unreleased]`) |
-| Tests | passing (count + flake status reported in CHANGELOG) |
+| Version | 0.5.1 |
+| Tests | 485 passing |
 | CI | green on py3.11 + py3.12 |
-| Lint/types | ruff clean, mypy strict clean on 46 source files |
+| Lint/types | ruff clean, mypy strict clean on 47 source files |
 | Operator's subscription | Claude Max plan with OAuth (no separate API credit) — see §Constraints below |
 
 ### What's built and tested
@@ -136,4 +136,4 @@ If you're new and want to understand what's here:
 
 ---
 
-_Last updated 2026-05-19. HEAD is a single squashed initial commit on the `claude` branch — the v0.5.0 toolkit bundled together as a project-agnostic backbone. Granular per-feature history was rewritten away during a public-release clean-up; the per-feature narrative lives in CHANGELOG.md._
+_Last updated 2026-05-19. Tagged at v0.5.1 on the `claude` branch. The v0.5.0 baseline was a single squashed initial commit (granular per-feature history was rewritten away during a public-release clean-up); subsequent releases are individual commits. The per-feature narrative lives in CHANGELOG.md._
