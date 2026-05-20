@@ -23,6 +23,7 @@ from cma.cli import bridge as bridge_cmd
 from cma.cli import doctor as doctor_cmd
 from cma.cli import executor as executor_cmd
 from cma.cli import project as project_cmd
+from cma.cli import vault as vault_cmd
 from cma.cli import webhook as webhook_cmd
 
 app = typer.Typer(
@@ -41,6 +42,7 @@ app.add_typer(bridge_cmd.app, name="bridge")
 app.add_typer(agent_cmd.app, name="agent")
 app.add_typer(audit_cmd.app, name="audit")
 app.add_typer(webhook_cmd.app, name="webhook")
+app.add_typer(vault_cmd.app, name="vault")
 
 
 @app.callback(invoke_without_command=False)

@@ -56,6 +56,7 @@ The cloud agent learns only what the operator declared in `output_summary`. If t
 | 8 | `cma audit` — human-readable view of the executor MCP audit log with `--since` / `--tool` / `--client-id` / `--error-only` / `--json` filters | `src/cma/cli/audit.py`, `src/cma/executor/audit.py` (added `audit_log_path` helper) |
 | 9 | `cma webhook serve/verify` — FastAPI receiver for Anthropic webhooks. Svix signature verification, budget kill switch via operator-authored policy (observe-first: `BudgetConfig.kill_on_breach` toggles `CANCEL_SESSION` ↔ `NOTIFY_ONLY`), pluggable `Actions` (NullActions default for Max-only setup). | `src/cma/webhook/`, `src/cma/cli/webhook.py` |
 | 10 | `FastMCPSessionNotifier` — production wiring for `notifications/cma/job_status_changed`. Per-job session binding (not broadcast): the active MCP `Context` is captured at `submit_job` time and the JSON-RPC notification dispatches only to the originating session on terminal transition. Wired by default in `cma executor stdio` / `serve`. | `src/cma/executor/notifications.py`, `src/cma/executor/server.py`, `src/cma/cli/executor.py` |
+| 11 | **Foundational vault** (`docs/vault/`) — markdown knowledge vault + 4 Claude Code hooks for anti-decay enforcement + `cma vault` CLI surface + `cma project init --with-vault` templating. Three-layer architecture (CHANGELOG snapshot ↔ markdown ADRs ↔ `manage_adr` summary). Backfilled 7 load-bearing ADRs from v0.1.0–v0.5.1 "Decisions baked in" sections. Anthropic docs scraper (`cma vault refresh-knowledge`) caches `code.claude.com/docs/en/*.md` locally to stop re-fetching. Plan v4.1: Slice D shipped, Slice A shipped, Slices B/C/E/F pending. | `docs/vault/`, `src/cma/vault/`, `src/cma/cli/vault.py`, `.claude/settings.json`, `src/cma/templates/vault/` |
 
 ### What's pending (in priority order, all unblocked)
 
@@ -109,11 +110,14 @@ If you're new and want to understand what's here:
 1. **`README.md`** — the public-facing overview.
 2. **This file** (`docs/ONBOARDING.md`) — you are here.
 3. **`CHANGELOG.md`** — version-by-version decisions baked in.
-4. **`docs/api-key-storage.md`** — apiKeyHelper + Get-Secret setup.
-5. **`docs/claude-code-integration.md`** — using cma-local-executor as a Claude Code MCP server. **Most useful for the operator's current path.**
-6. **`src/cma/templates/starter/`** — drop-in starter that ships with the wheel. Materialize a copy into your project with `cma project init --with-example`.
-7. **`CLAUDE.md`** — toolkit-internal project memory.
-8. **The plan file** (operator-local under their `~/.claude/plans/` directory; not checked in) — the full design rationale.
+4. **`docs/vault/README.md`** — knowledge vault (decisions, learnings, session context, cached Anthropic docs). New as of v0.6 (vault build slices D + A; B/C/E/F pending).
+5. **`docs/vault/context/ai-session-brief.md`** — single-screen orientation for a cold-start agent. The `SessionStart` hook (Slice B, pending) injects this automatically.
+6. **`docs/vault/decisions/_INDEX.md`** — current Architectural Decision Records.
+7. **`docs/api-key-storage.md`** — apiKeyHelper + Get-Secret setup.
+8. **`docs/claude-code-integration.md`** — using cma-local-executor as a Claude Code MCP server. **Most useful for the operator's current path.**
+9. **`src/cma/templates/starter/`** — drop-in starter that ships with the wheel. Materialize a copy into your project with `cma project init --with-example`.
+10. **`CLAUDE.md`** — toolkit-internal project memory.
+11. **The plan file** (operator-local under their `~/.claude/plans/` directory; not checked in) — the full design rationale.
 
 ## When to do what
 
@@ -124,6 +128,11 @@ If you're new and want to understand what's here:
 | "Why isn't this working?" | Check the audit log: `cma audit --since=24h` (if implemented) or read `.managed-agents/.state/executor-audit.jsonl` directly. |
 | "Make a new release" | Bump `pyproject.toml` + `src/cma/__init__.py`, add CHANGELOG entry, commit, push. CI auto-runs. |
 | "Push to GitHub" | `git push origin claude` from the repo root. |
+| "Log this decision" / "write an ADR for ..." | `cma vault new-decision <kebab-slug>` (once Slice E lands), or copy `docs/vault/_templates/decision.md` manually. Fill the frontmatter + the six sections. |
+| "What did we decide about X?" | First grep `docs/vault/decisions/*.md` for X. Fall back to CHANGELOG "Decisions baked in" sections if not found. Use `manage_adr` `mode='get'` for the current architectural summary. |
+| "Refresh the Anthropic docs" | `cma vault refresh-knowledge` (curated 15 pages) or `cma vault refresh-knowledge --all` (all 134). Skips entries <30d old. |
+| Hook 2 blocked my commit | A `### Decisions baked in` bullet was added to CHANGELOG without a parallel ADR. Either write the ADR (`cma vault new-decision`) or, in emergency, `CMA_VAULT_COMMIT_BYPASS=1 git commit ...`. |
+| Hook 4 blocked my Stop | The session touched architecture/design/decision words but no vault file was written. Write an ADR or learning, or `CMA_VAULT_STOP_BYPASS=1` to bypass (logged). |
 
 ## Things that bit us during the initial build (anti-patterns to avoid)
 

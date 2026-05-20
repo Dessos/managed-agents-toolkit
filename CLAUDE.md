@@ -41,12 +41,25 @@ Project-agnostic backbone for using Anthropic's [Claude Managed Agents](https://
 
 The authoritative plan lives operator-local under `~/.claude/plans/` and is not checked in. Mirror critical sections to `docs/plan.md` in this repo as they stabilize.
 
+## Knowledge vault — `docs/vault/`
+
+Decision logs, learnings, session context, and cached reference material live in [`docs/vault/`](docs/vault/) — see [`docs/vault/README.md`](docs/vault/README.md) for the 3-layer model (CHANGELOG snapshot ↔ markdown ADRs ↔ `manage_adr` summary).
+
+**Distinct from `cma.api.vaults`**: this knowledge vault is *operator + agent shared notes*. `cma.api.vaults` is the Anthropic Managed Agents *credential vault* (MCP server bearer tokens, governed by Non-negotiable rule #5). Same English word, different concept. Verbal convention: "knowledge vault" vs "credential vault".
+
+**Update discipline is hook-enforced** (`.claude/settings.json`, Slice B pending):
+- `PreToolUse[git commit]` blocks commits that add `### Decisions baked in` bullets to CHANGELOG without a parallel ADR file staged in `docs/vault/decisions/`.
+- `Stop` blocks session-end if the transcript contains architectural keywords but no vault file was written/edited this session.
+- Bypass: `CMA_VAULT_BYPASS=1` (both gates), `CMA_VAULT_COMMIT_BYPASS=1`, `CMA_VAULT_STOP_BYPASS=1`. Every bypass is telemetry-logged.
+
 ## Quick commands
 
 - **Doctor**: `cma doctor --probe-beta` — verifies alpha access state
 - **Lint bridge**: `cma bridge lint` — validates `.managed-agents/local_mcp_bridge.yaml`
 - **Session start**: `cma session start --workflow <name>` — main entry point
 - **Audit**: `cma audit --since=24h --project=<name>` — sanitized MCP call log
+- **Vault refresh**: `cma vault refresh-knowledge` — scrape Anthropic Claude Code docs into `docs/vault/knowledge/anthropic-docs/` (default: curated 15 pages, 30d freshness window)
+- **Vault bypass** (use sparingly): `CMA_VAULT_BYPASS=1` (master), `CMA_VAULT_COMMIT_BYPASS=1` (Hook 2 only), `CMA_VAULT_STOP_BYPASS=1` (Hook 4 only). Bypass events log to `O:/Temp/cma-vault-hook.jsonl`.
 
 ## Workflow
 

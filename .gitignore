@@ -29,8 +29,22 @@ htmlcov/
 *.swp
 *.swo
 
-# Per-clone Claude Code workspace (settings, sessions, etc.)
-.claude/
+# Claude Code per-clone state (sessions, todos, local-only settings).
+# NOTE: .claude/settings.json IS committed — it's the project-shared hook +
+# permissions config. Same for .claude/{agents,commands,skills,hooks}/ —
+# those are shared infra. Only operator-private state below is ignored.
+.claude/settings.local.json
+.claude/sessions/
+.claude/todos/
+.claude/projects/
+.claude/statsig/
+.claude/shell-snapshots/
+.claude/ide/
+.claude/state/
+.claude/cache/
+
+# Obsidian per-machine workspace state inside the vault.
+docs/vault/.obsidian/
 
 # Secrets
 .env

@@ -125,6 +125,82 @@ def _copy_starter(target_cma_dir: Path) -> list[Path]:
     return written
 
 
+def _iter_vault_files(vault: Traversable) -> Iterable[tuple[Path, Traversable]]:
+    """Yield ``(relative_path, traversable)`` for every file under the vault template."""
+
+    def walk(current: Traversable, prefix: Path) -> Iterable[tuple[Path, Traversable]]:
+        for item in current.iterdir():
+            rel = prefix / item.name
+            if item.is_dir():
+                yield from walk(item, rel)
+            else:
+                yield rel, item
+
+    return list(walk(vault, Path()))
+
+
+def _copy_vault(
+    project_root: Path,
+    *,
+    substitutions: dict[str, str],
+) -> list[Path]:
+    """Copy the vault scaffold into ``<project_root>/docs/vault/``.
+
+    Also writes the ``.claude/settings.json`` hook config at the project
+    root (so the hooks are wired the moment a session starts in the
+    consumer project). Files containing ``{{PLACEHOLDER}}`` patterns get
+    substituted; others are byte-copied. Returns the list of written paths.
+
+    The vault tree is bundled at ``cma.templates.vault``; the settings
+    template is at ``cma.templates.dot_claude_settings.json``.
+    """
+    vault = resources.files("cma.templates").joinpath("vault")
+    vault_dest_root = project_root / "docs" / "vault"
+    written: list[Path] = []
+
+    for rel, item in _iter_vault_files(vault):
+        dst = vault_dest_root / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        # Skip substitution for _templates/ files — their {{CREATED}}, {{TITLE}}
+        # etc. placeholders are POPULATED LATER by `cma vault new-*` commands
+        # at note-creation time, not at scaffolding time.
+        is_template_file = "_templates" in rel.parts
+        # Substitute only files that look text-y AND contain a placeholder.
+        if item.name.endswith((".md", ".txt", ".json", ".yaml", ".yml")) and not is_template_file:
+            content = item.read_text(encoding="utf-8")
+            if "{{" in content:
+                for key, value in substitutions.items():
+                    content = content.replace(f"{{{{{key}}}}}", value)
+                # Safety net: any leftover {{...}} is a bug.
+                leftover = _PLACEHOLDER_RE.findall(content)
+                if leftover:
+                    raise ValueError(
+                        f"Vault template {rel} has unsubstituted placeholders: "
+                        f"{sorted(set(leftover))}"
+                    )
+                dst.write_text(content, encoding="utf-8")
+            else:
+                dst.write_bytes(item.read_bytes())
+        else:
+            dst.write_bytes(item.read_bytes())
+        written.append(dst)
+
+    # `.claude/settings.json` — verbatim copy, no substitutions needed (paths
+    # are relative + use python -m cma.vault.* which works as long as cma is
+    # pip-installed in the consumer environment).
+    settings_src = resources.files("cma.templates").joinpath("dot_claude_settings.json")
+    settings_dst = project_root / ".claude" / "settings.json"
+    settings_dst.parent.mkdir(parents=True, exist_ok=True)
+    if settings_dst.exists():
+        # Don't clobber an existing settings.json — operator may have other
+        # hooks wired. Print a stderr nudge instead (handled by caller).
+        pass
+    else:
+        settings_dst.write_text(settings_src.read_text(encoding="utf-8"), encoding="utf-8")
+        written.append(settings_dst)
+    return written
+
+
 # ---------------------------------------------------------------------------
 # Resolution helpers
 # ---------------------------------------------------------------------------
@@ -223,6 +299,16 @@ def init(
             "given; defaults to False in non-interactive mode."
         ),
     ),
+    with_vault: bool | None = typer.Option(
+        None,
+        "--with-vault/--no-vault",
+        help=(
+            "Scaffold the knowledge vault at docs/vault/ (templates, "
+            "context briefs, folder READMEs) + wire the four hook scripts "
+            "into .claude/settings.json. Interactive prompt when not "
+            "given; defaults to False in non-interactive mode."
+        ),
+    ),
     non_interactive: bool = typer.Option(
         False,
         "--non-interactive",
@@ -291,6 +377,12 @@ def init(
         default_interactive=True,
         non_interactive=non_interactive,
     )
+    do_vault = _resolve_bool(
+        with_vault,
+        prompt_text="Scaffold the docs/vault/ knowledge vault + hooks?",
+        default_interactive=True,
+        non_interactive=non_interactive,
+    )
 
     cma_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
@@ -341,6 +433,15 @@ def init(
         )
         written.append(mcp_json_path)
 
+    # --with-vault: scaffold docs/vault/ + .claude/settings.json
+    vault_files: list[Path] = []
+    if do_vault:
+        vault_files = _copy_vault(
+            target,
+            substitutions={"PROJECT_NAME": resolved_name},
+        )
+        written.extend(vault_files)
+
     # ---- Success output ---------------------------------------------------
     console.print("\n[green]✓ Project initialised.[/green]\n")
     console.print("[bold]Files written:[/bold]")
@@ -375,6 +476,17 @@ def init(
         console.print(
             f"  {step}. Restart Claude Code to pick up the new "
             f"[cyan].mcp.json[/cyan]."
+        )
+        step += 1
+    if do_vault:
+        console.print(
+            f"  {step}. Customize [cyan]docs/vault/context/ai-session-brief.md[/cyan] "
+            f"with your sprint focus."
+        )
+        step += 1
+        console.print(
+            f"  {step}. Run [cyan]cma vault refresh-knowledge[/cyan] to "
+            f"populate the Anthropic docs cache."
         )
 
 

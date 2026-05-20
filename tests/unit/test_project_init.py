@@ -312,18 +312,20 @@ class TestInteractive:
         - project_name prompt → 'pretend-tty-app'
         - with_example prompt → 'n' (the default is yes, but we override)
         - with_mcp_json prompt → 'n'
+        - with_vault prompt → 'n' (added with Slice F of the vault build)
         """
         with patch("cma.cli.project._stdin_is_tty", return_value=True):
             result = runner.invoke(
                 app,
                 ["init", "--target", str(tmp_path)],
-                input="pretend-tty-app\nn\nn\n",
+                input="pretend-tty-app\nn\nn\nn\n",
             )
         assert result.exit_code == 0, result.output
         text = (tmp_path / ".managed-agents" / "project.yaml").read_text(
             encoding="utf-8"
         )
         assert "name: pretend-tty-app" in text
-        # User answered 'n' to both optional prompts:
+        # User answered 'n' to all three optional prompts:
         assert not (tmp_path / ".managed-agents" / "adapters").exists()
         assert not (tmp_path / ".mcp.json").exists()
+        assert not (tmp_path / "docs" / "vault").exists()
